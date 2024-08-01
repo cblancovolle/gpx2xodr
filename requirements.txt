@@ -1,0 +1,4 @@
+gpxpy==1.6.2
+lxml==5.2.2
+numpy==2.0.1
+scenariogeneration==0.14.5
