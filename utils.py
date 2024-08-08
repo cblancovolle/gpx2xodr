@@ -79,22 +79,27 @@ def geometry_from_points(segment_x, segment_y, p, theta, order=3):
     return geometry, (poly_u, poly_v, err)
 
 
-def find_roundabouts_from_gpx(
-    gpx_points, turn_angle_threshold=135, length_threshold=30, radius_threshold=10
+def sanity_check_from_gpx(
+    gpx_points,
+    turn_angle_threshold=135,
+    min_turn_angle_threshold=60,
+    length_threshold=30,
+    radius_threshold=10,
 ):
     latitudes = np.array([p.latitude for p in gpx_points])
     longitudes = np.array([p.longitude for p in gpx_points])
     x, y = latlon_to_xy(latitudes, longitudes)
     e = np.array([p.elevation for p in gpx_points])
 
-    hard_turns = find_hard_turns(x, y, turn_angle_threshold)
+    hard_turns, heading_angles = find_hard_turns(x, y, turn_angle_threshold)
     hard_turn_idxs = np.where(hard_turns)[0]
-    roundabout_mask = np.zeros(x.shape[0])
+    ill_points_mask = np.zeros(x.shape[0])
 
     lengths = np.array(
         [p_t.distance_2d(p_tp1) for p_t, p_tp1 in zip(gpx_points[:-1], gpx_points[1:])]
     )
 
+    # find roundabouts
     for it, itp1 in zip(hard_turn_idxs[:-1], hard_turn_idxs[1:]):
         l = np.sum(lengths[it:itp1])
         seg_n_points = itp1 - it
@@ -103,8 +108,11 @@ def find_roundabouts_from_gpx(
             # find curvature radius
             _, _, r, _ = cf.least_squares_circle(np.stack([seg_x, seg_y], axis=1))
             if l < length_threshold and r < radius_threshold:
-                roundabout_mask[it:itp1] = True
-    return roundabout_mask
+                ill_points_mask[it:itp1] = True
+
+    # find too hard turns
+    ill_points_mask[np.rad2deg(heading_angles) < min_turn_angle_threshold] = True
+    return ill_points_mask
 
 
 def find_hard_turns(x, y, turn_angle_threshold=135):
@@ -129,7 +137,7 @@ def find_hard_turns(x, y, turn_angle_threshold=135):
     heading_angles = np.array(heading_angles)
     hard_turns = np.zeros_like(x, dtype=bool)
     hard_turns[1:-1] = np.abs(np.rad2deg(heading_angles)) < turn_angle_threshold
-    return hard_turns
+    return hard_turns, np.pad(heading_angles, (1, 1), constant_values=np.pi)
 
 
 def generate_segments(n_points, repulsive_idxs, seg_length=3):

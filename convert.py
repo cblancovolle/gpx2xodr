@@ -14,7 +14,7 @@ from utils import (
     angle_between,
     compute_slopes,
     find_hard_turns,
-    find_roundabouts_from_gpx,
+    sanity_check_from_gpx,
     generate_segments,
     geometry_from_points,
     latlon_to_xy,
@@ -32,6 +32,24 @@ parser.add_argument("--lanewidth", type=float, help="lane width", default=6.0)
 parser.add_argument(
     "--turnth", type=float, help="turn angle threshold in degree", default=135
 )
+parser.add_argument(
+    "--minturnth",
+    type=float,
+    help="minimum turn angle threshold in degree, this will cause some points to be during sanity check removed to smooth the curve",
+    default=60,
+)
+parser.add_argument(
+    "--lenth",
+    type=float,
+    help="length threshold in meters used to detect roundabouts, this will cause some points to be removed during sanity check to smooth the curve",
+    default=30,
+)
+parser.add_argument(
+    "--radiusth",
+    type=float,
+    help="radius threshold in meters used to detect roundabouts, this will cause some points to be removed during sanity check to smooth the curve",
+    default=10,
+)
 args = parser.parse_args()
 
 with open(args.input, "r") as f:
@@ -45,10 +63,14 @@ for track in gpx.tracks:
             gpx_points.append(point)
 
 # sanity check data removing roundabouts points
-roundabout_mask = find_roundabouts_from_gpx(
-    gpx_points, turn_angle_threshold=args.turnth
+roundabout_mask = sanity_check_from_gpx(
+    gpx_points,
+    turn_angle_threshold=args.turnth,
+    min_turn_angle_threshold=args.minturnth,
+    length_threshold=args.lenth,
+    radius_threshold=args.radiusth,
 )
-# gpx_points = [p for idx, p in enumerate(gpx_points) if not roundabout_mask[idx]]
+gpx_points = [p for idx, p in enumerate(gpx_points) if not roundabout_mask[idx]]
 
 latitudes = np.array([p.latitude for p in gpx_points])
 longitudes = np.array([p.longitude for p in gpx_points])
@@ -59,7 +81,7 @@ e = np.array([p.elevation for p in gpx_points])
 
 # find hard turns points
 turn_angle_threshold = args.turnth
-hard_turns = find_hard_turns(x, y, turn_angle_threshold)
+hard_turns, _ = find_hard_turns(x, y, turn_angle_threshold)
 hard_turn_idxs = np.where(hard_turns)[0]
 
 # walking algorithm to build slices considering hard turns
