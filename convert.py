@@ -1,3 +1,7 @@
+import warnings
+
+warnings.filterwarnings("ignore")
+
 import argparse
 import numpy as np
 import gpxpy
@@ -9,6 +13,8 @@ from lxml import etree
 from utils import (
     angle_between,
     compute_slopes,
+    find_hard_turns,
+    find_roundabouts_from_gpx,
     generate_segments,
     geometry_from_points,
     latlon_to_xy,
@@ -24,7 +30,7 @@ parser.add_argument(
 )
 parser.add_argument("--lanewidth", type=float, help="lane width", default=6.0)
 parser.add_argument(
-    "--turnth", type=float, help="turn angle threshold in degree", default=50
+    "--turnth", type=float, help="turn angle threshold in degree", default=135
 )
 args = parser.parse_args()
 
@@ -38,6 +44,12 @@ for track in gpx.tracks:
         for point in segment.points:
             gpx_points.append(point)
 
+# sanity check data removing roundabouts points
+roundabout_mask = find_roundabouts_from_gpx(
+    gpx_points, turn_angle_threshold=args.turnth
+)
+# gpx_points = [p for idx, p in enumerate(gpx_points) if not roundabout_mask[idx]]
+
 latitudes = np.array([p.latitude for p in gpx_points])
 longitudes = np.array([p.longitude for p in gpx_points])
 
@@ -47,26 +59,7 @@ e = np.array([p.elevation for p in gpx_points])
 
 # find hard turns points
 turn_angle_threshold = args.turnth
-heading_angles = []
-
-for step in range(1, len(x) - 1):
-    prev_points_heading_x, prev_points_heading_y = (
-        x[step - 1] - x[step],
-        y[step - 1] - y[step],
-    )
-    next_points_heading_x, next_points_heading_y = (
-        x[step] - x[step + 1],
-        y[step] - y[step + 1],
-    )
-    heading_angles += [
-        angle_between(
-            np.array([prev_points_heading_x, prev_points_heading_y]),
-            np.array([next_points_heading_x, next_points_heading_y]),
-        )
-    ]
-heading_angles = np.array(heading_angles)
-hard_turns = np.zeros_like(x, dtype=bool)
-hard_turns[1:-1] = np.abs(np.rad2deg(heading_angles)) > 50
+hard_turns = find_hard_turns(x, y, turn_angle_threshold)
 hard_turn_idxs = np.where(hard_turns)[0]
 
 # walking algorithm to build slices considering hard turns

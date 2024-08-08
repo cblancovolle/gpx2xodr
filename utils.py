@@ -1,4 +1,5 @@
 import numpy as np
+import circle_fit as cf
 from scenariogeneration import xodr
 from numpy.polynomial import polynomial as P
 
@@ -76,6 +77,59 @@ def geometry_from_points(segment_x, segment_y, p, theta, order=3):
     ).mean()
 
     return geometry, (poly_u, poly_v, err)
+
+
+def find_roundabouts_from_gpx(
+    gpx_points, turn_angle_threshold=135, length_threshold=30, radius_threshold=10
+):
+    latitudes = np.array([p.latitude for p in gpx_points])
+    longitudes = np.array([p.longitude for p in gpx_points])
+    x, y = latlon_to_xy(latitudes, longitudes)
+    e = np.array([p.elevation for p in gpx_points])
+
+    hard_turns = find_hard_turns(x, y, turn_angle_threshold)
+    hard_turn_idxs = np.where(hard_turns)[0]
+    roundabout_mask = np.zeros(x.shape[0])
+
+    lengths = np.array(
+        [p_t.distance_2d(p_tp1) for p_t, p_tp1 in zip(gpx_points[:-1], gpx_points[1:])]
+    )
+
+    for it, itp1 in zip(hard_turn_idxs[:-1], hard_turn_idxs[1:]):
+        l = np.sum(lengths[it:itp1])
+        seg_n_points = itp1 - it
+        seg_x, seg_y = x[it:itp1], y[it:itp1]
+        if seg_n_points > 3:
+            # find curvature radius
+            _, _, r, _ = cf.least_squares_circle(np.stack([seg_x, seg_y], axis=1))
+            if l < length_threshold and r < radius_threshold:
+                roundabout_mask[it:itp1] = True
+    return roundabout_mask
+
+
+def find_hard_turns(x, y, turn_angle_threshold=135):
+    heading_angles = []
+
+    for step in range(1, len(x) - 1):
+        prev_points_heading_x, prev_points_heading_y = (
+            x[step - 1] - x[step],
+            y[step - 1] - y[step],
+        )
+        next_points_heading_x, next_points_heading_y = (
+            x[step] - x[step + 1],
+            y[step] - y[step + 1],
+        )
+        heading_angles += [
+            np.pi
+            - angle_between(
+                np.array([prev_points_heading_x, prev_points_heading_y]),
+                np.array([next_points_heading_x, next_points_heading_y]),
+            )
+        ]
+    heading_angles = np.array(heading_angles)
+    hard_turns = np.zeros_like(x, dtype=bool)
+    hard_turns[1:-1] = np.abs(np.rad2deg(heading_angles)) < turn_angle_threshold
+    return hard_turns
 
 
 def generate_segments(n_points, repulsive_idxs, seg_length=3):
